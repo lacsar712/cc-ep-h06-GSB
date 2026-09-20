@@ -149,6 +149,117 @@ def test_abort_terminal(db):
         )
 
 
+def test_abort_running_succeeds_with_reason(db):
+    run = start_run(
+        db,
+        actor="researcher",
+        project="p1",
+        name="n1",
+        dataset_content_sha256=sha("ds-abort-running"),
+        code_commit_sha="abc1234",
+        description=None,
+    )
+    run = abort_run(
+        db,
+        run_id=run.id,
+        actor="researcher",
+        reason="人工中止：超预算",
+        expected_version=1,
+    )
+    assert run.status == "aborted"
+    assert run.version == 2
+    assert run.abort_reason == "人工中止：超预算"
+    assert run.finished_at is not None
+    events = list_events(db, run.id)
+    assert [e.event_type for e in events] == ["RunStarted", "RunAborted"]
+    assert events[-1].payload_json["reason"] == "人工中止：超预算"
+
+
+def test_abort_after_completed_rejected_and_unchanged(db):
+    run = start_run(
+        db,
+        actor="researcher",
+        project="p1",
+        name="n1",
+        dataset_content_sha256=sha("ds-abort-completed"),
+        code_commit_sha="abc1234",
+        description=None,
+    )
+    run = complete_run(
+        db,
+        run_id=run.id,
+        actor="researcher",
+        result_summary="done",
+        expected_version=1,
+    )
+    assert run.status == "completed"
+    assert run.version == 2
+
+    with pytest.raises(ConflictError):
+        abort_run(
+            db,
+            run_id=run.id,
+            actor="researcher",
+            reason="终态后再中止，应被拒绝",
+            expected_version=2,
+        )
+
+    stored = db.get(RunProjection, run.id)
+    assert stored.status == "completed"
+    assert stored.version == 2
+    assert stored.abort_reason is None
+    assert stored.result_summary == "done"
+    events = list_events(db, run.id)
+    assert [e.event_type for e in events] == ["RunStarted", "RunCompleted"]
+
+
+def test_abort_after_aborted_rejected_and_unchanged(db):
+    run = start_run(
+        db,
+        actor="researcher",
+        project="p1",
+        name="n1",
+        dataset_content_sha256=sha("ds-abort-twice"),
+        code_commit_sha="abc1234",
+        description=None,
+    )
+    run = abort_run(
+        db,
+        run_id=run.id,
+        actor="researcher",
+        reason="第一次中止：OOM",
+        expected_version=1,
+    )
+    assert run.status == "aborted"
+    assert run.version == 2
+
+    with pytest.raises(ConflictError):
+        abort_run(
+            db,
+            run_id=run.id,
+            actor="researcher",
+            reason="第二次中止，应被拒绝",
+            expected_version=2,
+        )
+
+    stored = db.get(RunProjection, run.id)
+    assert stored.status == "aborted"
+    assert stored.version == 2
+    assert stored.abort_reason == "第一次中止：OOM"
+    events = list_events(db, run.id)
+    assert [e.event_type for e in events] == ["RunStarted", "RunAborted"]
+
+
+def test_abort_requires_nonempty_reason():
+    from pydantic import ValidationError
+
+    from app.schemas import AbortRunCommand
+
+    with pytest.raises(ValidationError):
+        AbortRunCommand(reason="", expected_version=1)
+
+
+
 def test_projection_matches_event_replay(db):
     run = start_run(
         db,

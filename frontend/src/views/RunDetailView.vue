@@ -92,7 +92,9 @@
         <n-button v-if="canAbort" type="warning" :loading="busy" @click="doAbort">AbortRun</n-button>
       </div>
     </div>
-    <div v-else class="card muted">审计员只读：可查看事件与血缘，不可发送命令。</div>
+    <div v-else class="card muted">
+      Run 已处于终态或当前为只读角色：不可再发送命令（含中止）。
+    </div>
   </div>
 </template>
 
@@ -108,6 +110,7 @@ import {
   recordMetric,
 } from '../api/client'
 import { useAuthStore } from '../stores/auth'
+import { canAbortRun } from '../utils/abortPolicy'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -126,12 +129,7 @@ const artifact = reactive({
 })
 
 const canWrite = computed(() => auth.role === 'researcher' && run.value?.status === 'running')
-const canAbort = computed(() => {
-  // BUG: allow abort UI after completed
-  if (auth.role !== 'researcher') return false
-  const s = run.value?.status
-  return s === 'running' || s === 'completed'
-})
+const canAbort = computed(() => canAbortRun(auth.role, run.value?.status))
 const statusLabel = computed(() => {
   const m = { running: '进行中', completed: '已完成', aborted: '已中止' }
   return m[run.value?.status] || run.value?.status

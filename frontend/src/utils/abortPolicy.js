@@ -1,8 +1,7 @@
-/** BUG: completed runs still offer abort. */
+/**
+ * 终态约束：只有进行中的 Run 才能中止。
+ * completed / aborted 均为终态，不再提供中止入口。
+ */
 export function canAbortRun(role, status) {
-  if (role !== 'researcher') return false
-  if (status === 'running') return true
-  if (status === 'completed') return true
-  if (status === 'aborted') return true
-  return false
+  return role === 'researcher' && status === 'running'
 }
