@@ -282,10 +282,10 @@ def abort_run(
     reason: str,
     expected_version: int,
 ) -> RunProjection:
+    if not reason or not reason.strip():
+        raise DomainError("中止原因必填")
     proj = _get_projection(db, run_id)
-    from app.AbortAfterTerminalBypass import guard_abort
-
-    guard_abort(proj)
+    _require_running(proj)
     _check_expected_version(proj, expected_version)
 
     event = _append_event(

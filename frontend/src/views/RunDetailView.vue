@@ -126,12 +126,9 @@ const artifact = reactive({
 })
 
 const canWrite = computed(() => auth.role === 'researcher' && run.value?.status === 'running')
-const canAbort = computed(() => {
-  // BUG: allow abort UI after completed
-  if (auth.role !== 'researcher') return false
-  const s = run.value?.status
-  return s === 'running' || s === 'completed'
-})
+const canAbort = computed(
+  () => auth.role === 'researcher' && run.value?.status === 'running',
+)
 const statusLabel = computed(() => {
   const m = { running: '进行中', completed: '已完成', aborted: '已中止' }
   return m[run.value?.status] || run.value?.status

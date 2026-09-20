@@ -149,6 +149,96 @@ def test_abort_terminal(db):
         )
 
 
+def _start(db, name="n1", salt="x"):
+    return start_run(
+        db,
+        actor="researcher",
+        project="p1",
+        name=name,
+        dataset_content_sha256=sha(salt),
+        code_commit_sha="abc1234",
+        description=None,
+    )
+
+
+def test_abort_running_succeeds(db):
+    run = _start(db, salt="abort-ok")
+    run = abort_run(
+        db,
+        run_id=run.id,
+        actor="researcher",
+        reason="不再需要该实验",
+        expected_version=1,
+    )
+    assert run.status == "aborted"
+    assert run.abort_reason == "不再需要该实验"
+    assert run.finished_at is not None
+    assert run.version == 2
+
+
+def test_abort_running_requires_reason(db):
+    run = _start(db, salt="abort-no-reason")
+    with pytest.raises(DomainError):
+        abort_run(
+            db,
+            run_id=run.id,
+            actor="researcher",
+            reason="   ",
+            expected_version=1,
+        )
+    assert db.get(RunProjection, run.id).status == "running"
+
+
+def test_abort_after_completed_rejected(db):
+    run = _start(db, salt="abort-after-complete")
+    run = complete_run(
+        db,
+        run_id=run.id,
+        actor="researcher",
+        result_summary="done",
+        expected_version=1,
+    )
+    assert run.status == "completed"
+    with pytest.raises(ConflictError):
+        abort_run(
+            db,
+            run_id=run.id,
+            actor="researcher",
+            reason="late abort",
+            expected_version=2,
+        )
+    stored = db.get(RunProjection, run.id)
+    assert stored.status == "completed"
+    assert stored.abort_reason is None
+    assert stored.version == 2
+    assert [e.event_type for e in list_events(db, run.id)] == ["RunStarted", "RunCompleted"]
+
+
+def test_abort_after_aborted_rejected(db):
+    run = _start(db, salt="abort-twice")
+    run = abort_run(
+        db,
+        run_id=run.id,
+        actor="researcher",
+        reason="first abort",
+        expected_version=1,
+    )
+    assert run.status == "aborted"
+    with pytest.raises(ConflictError):
+        abort_run(
+            db,
+            run_id=run.id,
+            actor="researcher",
+            reason="second abort",
+            expected_version=2,
+        )
+    stored = db.get(RunProjection, run.id)
+    assert stored.status == "aborted"
+    assert stored.abort_reason == "first abort"
+    assert stored.version == 2
+    assert [e.event_type for e in list_events(db, run.id)] == ["RunStarted", "RunAborted"]
+
+
 def test_projection_matches_event_replay(db):
     run = start_run(
         db,
